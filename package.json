@@ -1,0 +1,23 @@
+{
+  "name": "log_horizon",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "@pixiv/three-vrm-animation": "^3.5.5",
+    "fflate": "^0.8.3",
+    "three": "^0.185.1",
+    "vrm-mixamo-retarget": "^1.0.3"
+  }
+}
