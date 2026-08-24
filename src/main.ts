@@ -23,16 +23,50 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 container.appendChild(renderer.domElement);
 
-// 2. Lighting & Grid Setup
+// 2. Lighting & Environment Setup
 const mainLight = new THREE.DirectionalLight(0xffffff, 1.5);
-mainLight.position.set(2.0, 4.0, 2.0);
+mainLight.position.set(10.0, 20.0, 10.0);
 mainLight.castShadow = true;
+mainLight.shadow.mapSize.width = 2048;
+mainLight.shadow.mapSize.height = 2048;
 scene.add(mainLight);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
 
-const gridHelper = new THREE.GridHelper(30, 30, 0x444444, 0x222222);
+// --- PROCEDURAL TERRAIN GENERATION ---
+// A mathematical height function for rolling hills
+function getTerrainHeight(x: number, z: number): number {
+  const h1 = Math.sin(x * 0.15) * Math.cos(z * 0.15) * 0.8;
+  const h2 = Math.sin(x * 0.05) * 1.5;
+  return h1 + h2; // Returns world Y height at any (x, z) coordinate
+}
+
+const terrainGeometry = new THREE.PlaneGeometry(60, 60, 60, 60);
+terrainGeometry.rotateX(-Math.PI / 2); // Lay flat on XZ plane
+
+const posAttribute = terrainGeometry.attributes.position;
+for (let i = 0; i < posAttribute.count; i++) {
+  const x = posAttribute.getX(i);
+  const z = posAttribute.getZ(i);
+  posAttribute.setY(i, getTerrainHeight(x, z));
+}
+terrainGeometry.computeVertexNormals();
+
+const terrainMaterial = new THREE.MeshStandardMaterial({
+  color: 0x333b42,
+  roughness: 0.8,
+  metalness: 0.2,
+  flatShading: true, // Gives a clean low-poly aesthetic
+});
+
+const terrainMesh = new THREE.Mesh(terrainGeometry, terrainMaterial);
+terrainMesh.receiveShadow = true;
+scene.add(terrainMesh);
+
+// Subtle grid overlay to keep spatial awareness
+const gridHelper = new THREE.GridHelper(60, 60, 0x555555, 0x333333);
+gridHelper.position.y = 0.01; // Slightly above terrain to avoid z-fighting
 scene.add(gridHelper);
 
 // 3. Camera & Mouse Look Controls
@@ -61,23 +95,17 @@ const gravity = -20.0;
 const jumpStrength = 7.5;
 let isGrounded = true;
 let isCrouching = false;
-let jumpMovementState = 'idle'; // Tracks movement state at the exact moment of jumping
+let jumpMovementState = 'idle';
 
 window.addEventListener('keydown', (e) => {
   keysPressed[e.code] = true;
 
   if (e.code === 'Space' && isGrounded && !isCrouching) {
     const isSprinting = (keysPressed['ShiftLeft'] || keysPressed['ShiftRight']);
-    const forwardX = -Math.sin(yaw);
-    const forwardZ = -Math.cos(yaw);
-    const rightX = Math.cos(yaw);
-    const rightZ = -Math.sin(yaw);
-
     const isMoving = 
       keysPressed['KeyW'] || keysPressed['KeyS'] || 
       keysPressed['KeyD'] || keysPressed['KeyA'];
 
-    // Capture exact movement context when takeoff happens
     if (!isMoving) {
       jumpMovementState = 'idle';
     } else if (isSprinting) {
@@ -129,9 +157,9 @@ const animationFiles: Record<string, string> = {
   idle: '/animations/idle.fbx',
   walk: '/animations/walk.fbx',
   run: '/animations/run.fbx',
-  jump: '/animations/jump.fbx',          // Stationary / Default Jump
-  walkJump: '/animations/walkJump.fbx',  // Walking Jump
-  runJump: '/animations/runJump.fbx',    // Running / Sprinting Jump
+  jump: '/animations/jump.fbx',
+  walkJump: '/animations/walkJump.fbx',
+  runJump: '/animations/runJump.fbx',
   crouch: '/animations/crouch.fbx',
   crouchWalk: '/animations/crouchWalk.fbx',
 };
@@ -171,7 +199,11 @@ loader.load(
       currentActionName = 'idle';
     }
 
-    console.log('VRM Character & Animations Initialized Successfully!');
+    // Set initial character position on top of the terrain height at origin
+    currentVrm.scene.position.y = getTerrainHeight(0, 0);
+    charPosY = currentVrm.scene.position.y;
+
+    console.log('Terrain & Character Initialized Successfully!');
   },
   undefined,
   (error) => console.error('Error loading VRM model:', error)
@@ -186,27 +218,6 @@ function animate() {
 
   if (currentVrm && mixer) {
     const charPos = currentVrm.scene.position;
-
-    // --- Physics Update ---
-    if (!isGrounded) {
-      velocityY += gravity * deltaTime;
-      charPosY += velocityY * deltaTime;
-
-      if (charPosY <= 0) {
-        charPosY = 0;
-        velocityY = 0;
-        isGrounded = true;
-        jumpMovementState = 'idle';
-      }
-    }
-    charPos.y = charPosY;
-
-    // --- Dynamic Camera Position ---
-    const cameraTargetHeight = isCrouching ? 0.8 : 1.3;
-    camera.position.x = charPos.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch);
-    camera.position.y = charPosY + cameraTargetHeight + cameraDistance * Math.sin(pitch);
-    camera.position.z = charPos.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch);
-    camera.lookAt(charPos.x, charPosY + cameraTargetHeight, charPos.z);
 
     // --- Movement Vector Math ---
     const forwardX = -Math.sin(yaw);
@@ -231,15 +242,41 @@ function animate() {
       currentVrm.scene.rotation.y = Math.atan2(-moveVector.x, -moveVector.z);
     }
 
-    // --- Advanced Animation State Switching ---
+    // --- Surface Collision & Terrain Height Sampling ---
+    const groundHeight = getTerrainHeight(charPos.x, charPos.z);
+
     if (!isGrounded) {
-      // Pick the correct jump animation variant based on movement state at takeoff
+      velocityY += gravity * deltaTime;
+      charPosY += velocityY * deltaTime;
+
+      // Check if character has landed back down onto the rolling terrain surface
+      if (charPosY <= groundHeight) {
+        charPosY = groundHeight;
+        velocityY = 0;
+        isGrounded = true;
+        jumpMovementState = 'idle';
+      }
+    } else {
+      // Snuggly lock character height to the rolling hills as they walk/crouch
+      charPosY = groundHeight;
+    }
+    charPos.y = charPosY;
+
+    // --- Dynamic Camera Position ---
+    const cameraTargetHeight = isCrouching ? 0.8 : 1.3;
+    camera.position.x = charPos.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch);
+    camera.position.y = charPosY + cameraTargetHeight + cameraDistance * Math.sin(pitch);
+    camera.position.z = charPos.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch);
+    camera.lookAt(charPos.x, charPosY + cameraTargetHeight, charPos.z);
+
+    // --- Animation State Switching ---
+    if (!isGrounded) {
       if (jumpMovementState === 'run' && actions['runJump']) {
         fadeToAction('runJump', 0.1);
       } else if (jumpMovementState === 'walk' && actions['walkJump']) {
         fadeToAction('walkJump', 0.1);
       } else {
-        fadeToAction('jump', 0.1); // Fallback to stationary jump
+        fadeToAction('jump', 0.1);
       }
     } else if (isCrouching) {
       if (isMoving && actions['crouchWalk']) {
