@@ -114,7 +114,7 @@ fbxLoader.load(
         const clone = randomSource.clone(true);
 
         // Scale up the trees and rocks to match character size
-const scale = 0.5 + Math.random() * 0.05; 
+const scale = 0.5 + Math.random() * 0.1; 
 clone.scale.set(scale, scale, scale);
 
         const y = getTerrainHeight(rx, rz);
