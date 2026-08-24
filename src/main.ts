@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { loadMixamoAnimation } from './loadMixamoAnimation';
 
@@ -8,6 +9,7 @@ const container = document.querySelector<HTMLDivElement>('#app') || document.bod
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a20);
+scene.fog = new THREE.FogExp2(0x1a1a20, 0.025); // Adds atmospheric depth fog
 
 const camera = new THREE.PerspectiveCamera(
   45,
@@ -31,19 +33,18 @@ mainLight.shadow.mapSize.width = 2048;
 mainLight.shadow.mapSize.height = 2048;
 scene.add(mainLight);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+const ambientLight = new THREE.AmbientLight(0xddeeff, 0.6);
 scene.add(ambientLight);
 
 // --- PROCEDURAL TERRAIN GENERATION ---
-// A mathematical height function for rolling hills
 function getTerrainHeight(x: number, z: number): number {
   const h1 = Math.sin(x * 0.15) * Math.cos(z * 0.15) * 0.8;
   const h2 = Math.sin(x * 0.05) * 1.5;
-  return h1 + h2; // Returns world Y height at any (x, z) coordinate
+  return h1 + h2; 
 }
 
 const terrainGeometry = new THREE.PlaneGeometry(60, 60, 60, 60);
-terrainGeometry.rotateX(-Math.PI / 2); // Lay flat on XZ plane
+terrainGeometry.rotateX(-Math.PI / 2);
 
 const posAttribute = terrainGeometry.attributes.position;
 for (let i = 0; i < posAttribute.count; i++) {
@@ -54,20 +55,90 @@ for (let i = 0; i < posAttribute.count; i++) {
 terrainGeometry.computeVertexNormals();
 
 const terrainMaterial = new THREE.MeshStandardMaterial({
-  color: 0x333b42,
-  roughness: 0.8,
-  metalness: 0.2,
-  flatShading: true, // Gives a clean low-poly aesthetic
+  color: 0x3b4a3f,
+  roughness: 0.9,
+  metalness: 0.1,
+  flatShading: true,
 });
 
 const terrainMesh = new THREE.Mesh(terrainGeometry, terrainMaterial);
 terrainMesh.receiveShadow = true;
 scene.add(terrainMesh);
 
-// Subtle grid overlay to keep spatial awareness
-const gridHelper = new THREE.GridHelper(60, 60, 0x555555, 0x333333);
-gridHelper.position.y = 0.01; // Slightly above terrain to avoid z-fighting
-scene.add(gridHelper);
+// --- ADDING A LAKE / WATER BODY ---
+const waterGeometry = new THREE.PlaneGeometry(12, 12);
+waterGeometry.rotateX(-Math.PI / 2);
+const waterMaterial = new THREE.MeshStandardMaterial({
+  color: 0x2277aa,
+  roughness: 0.1,
+  metalness: 0.8,
+  transparent: true,
+  opacity: 0.85,
+});
+const lakeMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+const lakeX = 10;
+const lakeZ = -10;
+lakeMesh.position.set(lakeX, getTerrainHeight(lakeX, lakeZ) - 0.2, lakeZ);
+scene.add(lakeMesh);
+
+// Obstacle collision array (stores collision positions and radii)
+const colliders: { x: number; z: number; radius: number }[] = [];
+colliders.push({ x: lakeX, z: lakeZ, radius: 5.5 }); // Prevent walking into the lake
+
+// --- LOADING & SCATTERING THE FBX ENVIRONMENT PACK ---
+const fbxLoader = new FBXLoader();
+
+fbxLoader.load(
+  '/models/environment_pack.fbx',
+  (fbx) => {
+    const sourceMeshes: THREE.Object3D[] = [];
+    fbx.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        sourceMeshes.push(child);
+      }
+    });
+
+    if (sourceMeshes.length === 0) {
+      console.warn('No meshes found inside the environment FBX pack.');
+      return;
+    }
+
+    // Scatter clones across the terrain randomly
+    for (let i = 0; i < 20; i++) {
+      const rx = (Math.random() - 0.5) * 45;
+      const rz = (Math.random() - 0.5) * 45;
+
+      // Keep assets away from spawn center (0,0) and the lake
+      if (Math.hypot(rx, rz) > 5 && Math.hypot(rx - lakeX, rz - lakeZ) > 7) {
+        const randomSource = sourceMeshes[Math.floor(Math.random() * sourceMeshes.length)];
+        const clone = randomSource.clone(true);
+
+        // Scale up the trees and rocks to match character size
+const scale = 0.5 + Math.random() * 0.05; 
+clone.scale.set(scale, scale, scale);
+
+        const y = getTerrainHeight(rx, rz);
+        clone.position.set(rx, y, rz);
+
+        clone.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        scene.add(clone);
+        colliders.push({ x: rx, z: rz, radius: 0.8 });
+      }
+    }
+
+    console.log('Environment pack loaded and scattered successfully!');
+  },
+  undefined,
+  (err) => {
+    console.error('Error loading environment FBX pack:', err);
+  }
+);
 
 // 3. Camera & Mouse Look Controls
 let yaw = 0;
@@ -106,13 +177,9 @@ window.addEventListener('keydown', (e) => {
       keysPressed['KeyW'] || keysPressed['KeyS'] || 
       keysPressed['KeyD'] || keysPressed['KeyA'];
 
-    if (!isMoving) {
-      jumpMovementState = 'idle';
-    } else if (isSprinting) {
-      jumpMovementState = 'run';
-    } else {
-      jumpMovementState = 'walk';
-    }
+    if (!isMoving) jumpMovementState = 'idle';
+    else if (isSprinting) jumpMovementState = 'run';
+    else jumpMovementState = 'walk';
 
     velocityY = jumpStrength;
     isGrounded = false;
@@ -139,7 +206,6 @@ let currentActionName: string | null = null;
 
 function fadeToAction(name: string, duration = 0.2) {
   if (currentActionName === name) return; 
-  
   const nextAction = actions[name];
   if (nextAction) {
     nextAction.reset().fadeIn(duration).play();
@@ -190,7 +256,7 @@ loader.load(
         const clip = await loadMixamoAnimation(filePath, vrm);
         actions[key] = mixer.clipAction(clip);
       } catch (err) {
-        console.warn(`Optional or missing animation skipped (${key}):`, err);
+        console.warn(`Optional animation skipped (${key}):`, err);
       }
     }
 
@@ -199,11 +265,9 @@ loader.load(
       currentActionName = 'idle';
     }
 
-    // Set initial character position on top of the terrain height at origin
     currentVrm.scene.position.y = getTerrainHeight(0, 0);
     charPosY = currentVrm.scene.position.y;
-
-    console.log('Terrain & Character Initialized Successfully!');
+    console.log('Character & Environment Loaded Successfully!');
   },
   undefined,
   (error) => console.error('Error loading VRM model:', error)
@@ -219,7 +283,7 @@ function animate() {
   if (currentVrm && mixer) {
     const charPos = currentVrm.scene.position;
 
-    // --- Movement Vector Math ---
+    // --- Movement Vector & Collision Calculation ---
     const forwardX = -Math.sin(yaw);
     const forwardZ = -Math.cos(yaw);
     const rightX = Math.cos(yaw);
@@ -238,7 +302,24 @@ function animate() {
     if (isMoving) {
       moveVector.normalize();
       const speed = isCrouching ? 1.5 : isSprinting ? 6.5 : 3.0;
-      charPos.addScaledVector(moveVector, speed * deltaTime);
+      
+      const nextX = charPos.x + moveVector.x * speed * deltaTime;
+      const nextZ = charPos.z + moveVector.z * speed * deltaTime;
+
+      let collides = false;
+      for (const col of colliders) {
+        const dist = Math.hypot(nextX - col.x, nextZ - col.z);
+        if (dist < col.radius + 0.3) {
+          collides = true;
+          break;
+        }
+      }
+
+      if (!collides) {
+        charPos.x = nextX;
+        charPos.z = nextZ;
+      }
+
       currentVrm.scene.rotation.y = Math.atan2(-moveVector.x, -moveVector.z);
     }
 
@@ -249,7 +330,6 @@ function animate() {
       velocityY += gravity * deltaTime;
       charPosY += velocityY * deltaTime;
 
-      // Check if character has landed back down onto the rolling terrain surface
       if (charPosY <= groundHeight) {
         charPosY = groundHeight;
         velocityY = 0;
@@ -257,7 +337,6 @@ function animate() {
         jumpMovementState = 'idle';
       }
     } else {
-      // Snuggly lock character height to the rolling hills as they walk/crouch
       charPosY = groundHeight;
     }
     charPos.y = charPosY;
@@ -271,19 +350,12 @@ function animate() {
 
     // --- Animation State Switching ---
     if (!isGrounded) {
-      if (jumpMovementState === 'run' && actions['runJump']) {
-        fadeToAction('runJump', 0.1);
-      } else if (jumpMovementState === 'walk' && actions['walkJump']) {
-        fadeToAction('walkJump', 0.1);
-      } else {
-        fadeToAction('jump', 0.1);
-      }
+      if (jumpMovementState === 'run' && actions['runJump']) fadeToAction('runJump', 0.1);
+      else if (jumpMovementState === 'walk' && actions['walkJump']) fadeToAction('walkJump', 0.1);
+      else fadeToAction('jump', 0.1);
     } else if (isCrouching) {
-      if (isMoving && actions['crouchWalk']) {
-        fadeToAction('crouchWalk', 0.2);
-      } else {
-        fadeToAction('crouch', 0.2);
-      }
+      if (isMoving && actions['crouchWalk']) fadeToAction('crouchWalk', 0.2);
+      else fadeToAction('crouch', 0.2);
     } else if (isMoving) {
       fadeToAction(isSprinting ? 'run' : 'walk', 0.2);
     } else {
