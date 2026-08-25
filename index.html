@@ -1,12 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>log_horizon</title>
+    <title>ElderTale - Log Horizon</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        user-select: none;
+      }
+      body, html {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #1a1a20;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+      #app {
+        width: 100%;
+        height: 100%;
+      }
+      /* Login Overlay Styles */
+      #login-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(15, 15, 20, 0.92);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 999;
+        backdrop-filter: blur(8px);
+      }
+      .login-box {
+        background: #23252e;
+        border: 1px solid #3e4251;
+        border-radius: 8px;
+        padding: 40px;
+        width: 360px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        color: #ffffff;
+        text-align: center;
+      }
+      .login-box h1 {
+        font-size: 24px;
+        letter-spacing: 2px;
+        margin-bottom: 6px;
+        color: #4db8ff;
+      }
+      .login-box p {
+        font-size: 12px;
+        color: #8a8f9d;
+        margin-bottom: 24px;
+      }
+      .input-group {
+        margin-bottom: 18px;
+        text-align: left;
+      }
+      .input-group label {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #a0a5b5;
+        margin-bottom: 6px;
+      }
+      .input-group input {
+        width: 100%;
+        padding: 10px 12px;
+        background: #141519;
+        border: 1px solid #343746;
+        border-radius: 4px;
+        color: #fff;
+        font-size: 14px;
+        outline: none;
+      }
+      .input-group input:focus {
+        border-color: #4db8ff;
+      }
+      #login-btn {
+        width: 100%;
+        padding: 12px;
+        background: #2b7fff;
+        border: none;
+        border-radius: 4px;
+        color: #fff;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        transition: background 0.2s;
+        margin-top: 10px;
+      }
+      #login-btn:hover {
+        background: #1a6bf0;
+      }
+      #error-msg {
+        color: #ff5555;
+        font-size: 12px;
+        margin-top: 14px;
+        display: none;
+      }
+    </style>
   </head>
   <body>
+    <div id="login-overlay">
+      <div class="login-box">
+        <h1>ELDERTALE</h1>
+        <p>LOG HORIZON ENGINE AUTHENTICATION</p>
+        <form id="login-form">
+          <div class="input-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" autocomplete="off" required />
+          </div>
+          <div class="input-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" required />
+          </div>
+          <button type="submit" id="login-btn">ENTER WORLD</button>
+          <div id="error-msg">Invalid Credentials</div>
+        </form>
+      </div>
+    </div>
+
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
