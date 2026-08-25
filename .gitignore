@@ -27,4 +27,4 @@ dist/
 .env
 .env.local
 .env.*.local
-src/config.ts
+# src/config.ts
